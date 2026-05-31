@@ -6,17 +6,12 @@ let
     concatStringsSep
     hasPrefix
     head
-    replaceStrings
     optionalString
-    removePrefix
     foldl'
     elem
     take
     length
     last
-    ;
-  inherit (lib.strings)
-    sanitizeDerivationName
     ;
 
   # ["/home/user/" "/.screenrc"] -> ["home" "user" ".screenrc"]
@@ -37,7 +32,6 @@ let
     in
     prefix + path;
 
-
   parentsOf = path:
     let
       prefix = optionalString (hasPrefix "/" path) "/";
@@ -54,11 +48,6 @@ let
         ])
       [ ]
       parents;
-
-  sanitizeName = name:
-    replaceStrings
-      [ "." ] [ "" ]
-      (sanitizeDerivationName (removePrefix "/" name));
 
   duplicates = list:
     let
@@ -85,7 +74,6 @@ in
     dirListToPath
     concatPaths
     parentsOf
-    sanitizeName
     duplicates
     ;
 }
