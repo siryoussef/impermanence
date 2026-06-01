@@ -122,6 +122,7 @@ in
             ({ name, config, ... }:
               (importApply ./submodule-options.nix {
                 inherit pkgs lib name config;
+                systemConfig = config;
                 user = "root";
                 group = "root";
                 homeDir = null;
@@ -140,8 +141,9 @@ in
                           { name, config, ... }:
                           importApply ./submodule-options.nix {
                             inherit pkgs lib;
-                            config = outerConfig // config;
+                            systemConfig = outerConfig;
                             name = outerName;
+                            config = config;
                             usersOpts = true;
                             user = name;
                             group = users.${name}.group;

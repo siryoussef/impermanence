@@ -1,8 +1,8 @@
-{
   pkgs,
   lib,
   name,
-  config,
+  config,                                   # The current SUBMODULE config
+  systemConfig ? config,                    # The OUTER persistence block config
   homeDir,
   usersOpts ? false, # Are the options used as users.<username> submodule options?
   user, # Default user name
@@ -48,7 +48,7 @@
     options = {
       persistentStoragePath = mkOption {
         type = path;
-        default = config.persistentStoragePath;
+        default = systemConfig.persistentStoragePath;
         defaultText = "environment.persistence.‹name›.persistentStoragePath";
         description = ''
           The path to persistent storage where the real
@@ -73,7 +73,7 @@
       };
       enableDebugging = mkOption {
         type = bool;
-        default = config.enableDebugging;
+        default = systemConfig.enableDebugging;
         defaultText = "environment.persistence.‹name›.enableDebugging";
         internal = true;
         description = ''
@@ -159,7 +159,7 @@
         };
         hideMount = mkOption {
           type = bool;
-          default = config.hideMounts;
+          default = systemConfig.hideMounts;
           defaultText = "environment.persistence.‹name›.hideMounts";
           example = true;
           description = ''
@@ -169,7 +169,7 @@
         };
         allowTrash = mkOption {
           type = bool;
-          default = config.allowTrash;
+          default = systemConfig.allowTrash;
           defaultText = "environment.persistence.‹name›.allowTrash";
           example = true;
           description = ''
