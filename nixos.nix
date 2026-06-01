@@ -256,11 +256,7 @@ in
                       };
                     };
                   };
-              in
-              foldl' recursiveUpdate { } (map mkPersistFileService files);
 
-            systemd.services =
-              let
                 mkBindfsService = { dirPath, persistentStoragePath, allowOther ? false, ... }@args:
                   let
                     targetDir = getPersistentPath args;
@@ -281,9 +277,12 @@ in
                       };
                     };
                   };
+                  
                 bindfsDirs = filter (d: d.method == "bindfs") directories;
               in
-              foldl' recursiveUpdate { } (map mkBindfsService bindfsDirs);
+              recursiveUpdate
+                (foldl' recursiveUpdate { } (map mkPersistFileService files))
+                (foldl' recursiveUpdate { } (map mkBindfsService bindfsDirs));
 
             boot.initrd.systemd.mounts =
               let
