@@ -70,25 +70,25 @@ let
 
   getPersistentPath = { persistentStoragePath, dirPath ? null, filePath ? null, removePrefixDirectory ? false, home ? null, ... }:
     let
-      # Use a string directly to avoid coercion issues/recursion if possible
-      pathStr = toString (if dirPath != null then dirPath else filePath);
+      # Use the raw path directly to avoid triggering submodule property evaluation early
+      path = if dirPath != null then dirPath else filePath;
       
       strippedPath =
         if removePrefixDirectory && home != null then
-          lib.removePrefix (toString home) pathStr
+          lib.removePrefix (toString home) (toString path)
         else if removePrefixDirectory then
           let
             # Avoid splitting multiple times
-            parts = filter (s: s != "") (lib.splitString "/" pathStr);
+            parts = filter (s: s != "") (lib.splitString "/" (toString path));
           in
           if length parts > 1 then
             "/" + (concatStringsSep "/" (lib.drop 1 parts))
           else
             "/"
         else
-          pathStr;
+          path;
     in
-    concatPaths [ (toString persistentStoragePath) strippedPath ];
+    concatPaths [ persistentStoragePath strippedPath ];
 
 in
 {

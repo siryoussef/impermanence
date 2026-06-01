@@ -91,19 +91,19 @@ let
     patchShebangs $out
   '';
 
-  mkPersistFile = { filePath, persistentStoragePath, method, enableDebugging, ... }@args:
+  mkPersistFile = { filePath, persistentStoragePath, method, enableDebugging, targetFile ? null, ... }@args:
     let
       mountPoint = filePath;
-      targetFile = getPersistentPath args;
-      args = escapeShellArgs [
+      realTargetFile = if targetFile != null then targetFile else getPersistentPath args;
+      args' = escapeShellArgs [
         mountPoint
-        targetFile
+        realTargetFile
         method
         enableDebugging
       ];
     in
     ''
-      ${mountFile} ${args}
+      ${mountFile} ${args'}
     '';
 
   defaultPerms = {
@@ -230,9 +230,20 @@ in
           {
             systemd.services =
               let
-                mkPersistFileService = { filePath, persistentStoragePath, ... }@args:
+                mkPersistFileService = { ... }@args:
                   let
-                    targetFile = getPersistentPath args;
+                    # Extract values explicitly to break recursion
+                    filePath = args.filePath;
+                    persistentStoragePath = args.persistentStoragePath;
+                    removePrefixDirectory = args.removePrefixDirectory or false;
+                    home = args.home or null;
+                    method = args.method or "auto";
+                    enableDebugging = args.enableDebugging or false;
+                    
+                    targetFile = getPersistentPath {
+                      inherit persistentStoragePath removePrefixDirectory home;
+                      filePath = args.file;
+                    };
                     mountPoint = escapeShellArg filePath;
                   in
                   {
@@ -245,7 +256,10 @@ in
                       serviceConfig = {
                         Type = "oneshot";
                         RemainAfterExit = true;
-                        ExecStart = mkPersistFile args;
+                        ExecStart = mkPersistFile {
+                          inherit filePath persistentStoragePath method enableDebugging;
+                          targetFile = targetFile;
+                        };
                         ExecStop = pkgs.writeShellScript "unbindOrUnlink-${escapeSystemdPath targetFile}" ''
                           set -eu
                           if [[ -L ${mountPoint} ]]; then
@@ -259,9 +273,19 @@ in
                     };
                   };
 
-                mkBindfsService = { dirPath, persistentStoragePath, allowOther ? false, ... }@args:
+                mkBindfsService = { ... }@args:
                   let
-                    targetDir = getPersistentPath args;
+                    # Extract values explicitly to break recursion
+                    dirPath = args.dirPath;
+                    persistentStoragePath = args.persistentStoragePath;
+                    removePrefixDirectory = args.removePrefixDirectory or false;
+                    home = args.home or null;
+                    allowOther = args.allowOther or false;
+                    
+                    targetDir = getPersistentPath {
+                      inherit persistentStoragePath removePrefixDirectory home;
+                      dirPath = dirPath;
+                    };
                     mountPoint = concatPaths [ "/" dirPath ];
                   in
                   {
