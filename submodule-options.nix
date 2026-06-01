@@ -1,14 +1,15 @@
-{ pkgs
-, lib
-, name
-, config
-, homeDir
-, usersOpts ? false  # Are the options used as users.<username> submodule options?
-, user               # Default user name
-, group              # Default user group
-}:
-let
-  inherit (lib)
+{
+  pkgs,
+  lib,
+  name,
+  config,
+  homeDir,
+  usersOpts ? false, # Are the options used as users.<username> submodule options?
+  user, # Default user name
+  group, # Default user group
+}: let
+  inherit
+    (lib)
     mkOption
     mkDefault
     mkIf
@@ -20,11 +21,13 @@ let
     mkRemovedOptionModule
     ;
 
-  inherit (pkgs.callPackage ./lib.nix { })
+  inherit
+    (pkgs.callPackage ./lib.nix {})
     concatPaths
     ;
 
-  inherit (types)
+  inherit
+    (types)
     bool
     listOf
     submodule
@@ -61,6 +64,13 @@ let
           directory is placed within.
         '';
       };
+      removePrefixDirectory = mkOption {
+        type = bool;
+        default = false;
+        description = ''
+          Whether to remove the first component of the path when deciding where to put the links.
+        '';
+      };
       enableDebugging = mkOption {
         type = bool;
         default = config.enableDebugging;
@@ -75,7 +85,7 @@ let
       assertions = mkOption {
         type = listOf unspecified;
         internal = true;
-        default = [ ];
+        default = [];
       };
     };
   };
@@ -115,22 +125,21 @@ let
         '';
       };
       parentDirectory =
-        commonOpts.options //
-        mapAttrs
-          (_: x:
-            if x._type or null == "option" then
-              x // { internal = true; }
-            else
-              x)
-          dirOpts.options;
+        commonOpts.options
+        // mapAttrs
+        (_: x:
+          if x._type or null == "option"
+          then x // {internal = true;}
+          else x)
+        dirOpts.options;
       method = mkOption {
-        type = enum [ "auto" "symlink" ];
+        type = enum ["auto" "symlink" "bindfs"];
         default = "auto";
         description = ''
           The method used to link to the target file.
-          `auto' will almost always do the right thing,
-          thus you should only set this if the default
-          doesn't work.
+          `auto' will use the default system method (usually bind mount or systemd mount).
+          `bindfs' will use a FUSE-based bind mount.
+          `symlink' uses a symlink regardless.
         '';
       };
       filePath = mkOption {
@@ -140,126 +149,106 @@ let
     };
   };
   dirOpts = {
-    options = {
-      directory = mkOption {
-        type = str;
-        description = ''
-          The path to the directory.
-        '';
-      };
-      hideMount = mkOption {
-        type = bool;
-        default = config.hideMounts;
-        defaultText = "environment.persistence.‹name›.hideMounts";
-        example = true;
-        description = ''
-          Whether to hide bind mounts from showing up as
-          mounted drives.
-        '';
-      };
-      allowTrash = mkOption {
-        type = bool;
-        default = config.allowTrash;
-        defaultText = "environment.persistence.‹name›.allowTrash";
-        example = true;
-        description = ''
-          Whether to allow newer GIO-based applications to trash files.
-        '';
-      };
-      # Save the default permissions at the level the
-      # directory resides. This used when creating its
-      # parent directories, giving them reasonable
-      # default permissions unaffected by the
-      # directory's own.
-      defaultPerms = mapAttrs (_: x: x // { internal = true; }) dirPermsOpts;
-      dirPath = mkOption {
-        type = path;
-        internal = true;
-      };
-    } // dirPermsOpts;
+    options =
+      {
+        directory = mkOption {
+          type = str;
+          description = ''
+            The path to the directory.
+          '';
+        };
+        hideMount = mkOption {
+          type = bool;
+          default = config.hideMounts;
+          defaultText = "environment.persistence.‹name›.hideMounts";
+          example = true;
+          description = ''
+            Whether to hide bind mounts from showing up as
+            mounted drives.
+          '';
+        };
+        allowTrash = mkOption {
+          type = bool;
+          default = config.allowTrash;
+          defaultText = "environment.persistence.‹name›.allowTrash";
+          example = true;
+          description = ''
+            Whether to allow newer GIO-based applications to trash files.
+          '';
+        };
+        method = mkOption {
+          type = enum ["bind" "bindfs" "symlink"];
+          default = "bind";
+          description = ''
+            The method used to link to the target directory.
+            `bind' uses a native systemd bind mount.
+            `bindfs' uses a FUSE-based bind mount (useful for allowOther).
+            `symlink' uses a symlink.
+          '';
+        };
+        allowOther = mkOption {
+          type = bool;
+          default = false;
+          description = ''
+            Whether to allow other users to access the directory (only works with bindfs).
+          '';
+        };
+        # Save the default permissions at the level the
+        # directory resides. This used when creating its
+        # parent directories, giving them reasonable
+        # default permissions unaffected by the
+        # directory's own.
+        defaultPerms = mapAttrs (_: x: x // {internal = true;}) dirPermsOpts;
+        dirPath = mkOption {
+          type = path;
+          internal = true;
+        };
+      }
+      // dirPermsOpts;
   };
   file = submodule [
     commonOpts
     fileOpts
-    (mkIf (homeDir != null) { home = homeDir; })
+    (mkIf (homeDir != null) {home = homeDir;})
     {
       parentDirectory = mkDefault defaultPerms;
     }
-    ({ config, ... }:
-      let
-        parentPath = if config.home != null then config.home else "/";
-        directory = dirOf config.file;
-      in
-      {
-        parentDirectory = {
-          dirPath = concatPaths [ parentPath directory ];
-          inherit directory defaultPerms;
-          inherit (config) home persistentStoragePath;
-        };
-        filePath = concatPaths [ parentPath config.file ];
-      })
+    ({config, ...}: let
+      parentPath =
+        if config.home != null
+        then config.home
+        else "/";
+      directory = dirOf config.file;
+    in {
+      parentDirectory = {
+        dirPath = concatPaths [parentPath directory];
+        inherit directory defaultPerms;
+        inherit (config) home persistentStoragePath;
+      };
+      filePath = concatPaths [parentPath config.file];
+    })
   ];
   dir = submodule ([
-    commonOpts
-    dirOpts
-    {
-      imports = [
-        (mkRemovedOptionModule
-          [ "method" ]
-          ''
-            ▹ persistence."${name}":
-                As real bind mounts are now used instead of bindfs, changing the directory linking
-                method is deprecated.
-          '')
-      ];
-    }
-    (mkIf (homeDir != null) { home = homeDir; })
-    ({ config, ... }:
-      let
-        home = if config.home != null then config.home else "/";
-      in
-      {
+      commonOpts
+      dirOpts
+      (mkIf (homeDir != null) {home = homeDir;})
+      ({config, ...}: let
+        home =
+          if config.home != null
+          then config.home
+          else "/";
+      in {
         defaultPerms = mkDefault defaultPerms;
-        dirPath = concatPaths [ home config.directory ];
+        dirPath = concatPaths [home config.directory];
       })
-  ] ++ (mapAttrsToList (n: v: { ${n} = mkDefault v; }) defaultPerms));
-
-in
-{
-  imports = optionals (!usersOpts) [
-    (mkRemovedOptionModule
-      [ "allowOther" ]
-      ''
-        ▹ persistence."${name}":
-            As real bind mounts are now used instead of bindfs, `allowOther' is no longer needed.
-      '')
-    (mkRemovedOptionModule
-      [ "removePrefixDirectory" ]
-      ''
-        ▹ persistence."${name}":
-            The use of prefix directories is deprecated and the functionality has been removed.
-            If you depend on this functionality, use the `home-manager-v1' branch.
-      '')
-    (mkRemovedOptionModule
-      [ "defaultDirectoryMethod" ]
-      ''
-        ▹ persistence."${name}":
-            As real bind mounts are now used instead of bindfs, changing the default directory linking
-            method is deprecated.
-      '')
-  ] ++ (optionals usersOpts [
-    (mkRemovedOptionModule
-      [ "home" ]
-      ''
-        ▹ persistence."${name}":
-            The home directory is now automatically deduced, rendering this option useless.
-      '')
-  ]);
+    ]
+    ++ (mapAttrsToList (n: v: {${n} = mkDefault v;}) defaultPerms));
+in {
   options =
     {
       files = mkOption {
-        type = listOf (coercedTo str (f: { file = f; }) file);
-        default = [ ];
+        type = listOf (coercedTo str (f: {file = f;}) file);
+        default = [];
         example = [
           "/etc/machine-id"
           "/etc/nix/id_rsa"
@@ -270,8 +259,8 @@ in
       };
 
       directories = mkOption {
-        type = listOf (coercedTo str (d: { directory = d; }) dir);
-        default = [ ];
+        type = listOf (coercedTo str (d: {directory = d;}) dir);
+        default = [];
         example = [
           "/var/log"
           "/var/lib/bluetooth"
@@ -287,62 +276,62 @@ in
       assertions = mkOption {
         type = listOf unspecified;
         internal = true;
-        default = [ ];
+        default = [];
       };
-    } //
-    optionalAttrs (!usersOpts)
-      {
-        enable = mkOption {
-          type = bool;
-          default = true;
-          description = "Whether to enable this persistent storage location.";
-        };
-
-        persistentStoragePath = mkOption {
-          type = path;
-          default = name;
-          defaultText = "‹name›";
-          description = ''
-            The path to persistent storage where the real
-            files and directories should be stored.
-          '';
-        };
-
-        hideMounts = mkOption {
-          type = bool;
-          default = false;
-          example = true;
-          description = ''
-            Whether to hide bind mounts from showing up as mounted drives.
-          '';
-        };
-
-        allowTrash = mkOption {
-          type = bool;
-          default = false;
-          example = true;
-          description = ''
-            Whether to allow newer GIO-based applications to trash files.
-          '';
-        };
-
-        enableDebugging = mkOption {
-          type = bool;
-          default = false;
-          internal = true;
-          description = ''
-            Enable debug trace output when running
-            scripts. You only need to enable this if asked
-            to.
-          '';
-        };
-
-        enableWarnings = mkOption {
-          type = bool;
-          default = true;
-          description = ''
-            Enable non-critical warnings.
-          '';
-        };
+    }
+    // optionalAttrs (!usersOpts)
+    {
+      enable = mkOption {
+        type = bool;
+        default = true;
+        description = "Whether to enable this persistent storage location.";
       };
+
+      persistentStoragePath = mkOption {
+        type = path;
+        default = name;
+        defaultText = "‹name›";
+        description = ''
+          The path to persistent storage where the real
+          files and directories should be stored.
+        '';
+      };
+
+      hideMounts = mkOption {
+        type = bool;
+        default = false;
+        example = true;
+        description = ''
+          Whether to hide bind mounts from showing up as mounted drives.
+        '';
+      };
+
+      allowTrash = mkOption {
+        type = bool;
+        default = false;
+        example = true;
+        description = ''
+          Whether to allow newer GIO-based applications to trash files.
+        '';
+      };
+
+      enableDebugging = mkOption {
+        type = bool;
+        default = false;
+        internal = true;
+        description = ''
+          Enable debug trace output when running
+          scripts. You only need to enable this if asked
+          to.
+        '';
+      };
+
+      enableWarnings = mkOption {
+        type = bool;
+        default = true;
+        description = ''
+          Enable non-critical warnings.
+        '';
+      };
+    };
 }

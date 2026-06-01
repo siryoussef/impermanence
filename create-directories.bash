@@ -28,8 +28,8 @@ trap 'echo Error when executing ${BASH_COMMAND} at line ${LINENO}! >&2' ERR
 #   3. Copy the mode of the source path to the target path
 
 # Get inputs from command line arguments
-if [[ $# != 6 ]]; then
-    printf "Error: 'create-directories.bash' requires *six* args.\n" >&2
+if [[ $# -lt 6 ]]; then
+    printf "Error: 'create-directories.bash' requires at least *six* args.\n" >&2
     exit 1
 fi
 sourceBase="$1"
@@ -38,6 +38,7 @@ user="$3"
 group="$4"
 mode="$5"
 debug="$6"
+skipEphemeral="${7:-0}"
 
 if (( debug )); then
     set -o xtrace
@@ -48,11 +49,12 @@ fi
 realSource="$(realpath -m "$sourceBase$target")"
 if [[ ! -d $realSource ]]; then
     printf "Warning: Source directory '%s' does not exist; it will be created for you with the following permissions: owner: '%s:%s', mode: '%s'.\n" "$realSource" "$user" "$group" "$mode"
-    mkdir --mode="$mode" "$realSource"
+    mkdir -p "$realSource"
     chown "$user:$group" "$realSource"
+    chmod "$mode" "$realSource"
 fi
 
-if [[ $sourceBase ]]; then
+if [[ $sourceBase && $skipEphemeral != "1" ]]; then
     [[ -d $target ]] || mkdir "$target"
 
     # synchronize perms between source and target

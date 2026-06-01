@@ -18,22 +18,7 @@
 
       # Deprecated
       homeManagerModules.default = self.homeManagerModules.impermanence;
-      homeManagerModules.impermanence = {
-        assertions = [
-          {
-            assertion = false;
-            message = ''
-              home.persistence: The Home Manager flake outputs are deprecated!
-
-                The Home Manager module will be automatically imported by the NixOS
-                module. Please remove any manual imports.
-
-                See https://github.com/nix-community/impermanence?tab=readme-ov-file#home-manager
-                for updated usage instructions.
-            '';
-          }
-        ];
-      };
+      homeManagerModules.impermanence = import ./home-manager.nix;
       nixosModule = self.nixosModules.impermanence;
       nixosModules.home-manager.impermanence = self.homeManagerModules.impermanence;
 

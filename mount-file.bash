@@ -39,6 +39,9 @@ elif [[ -s $mountPoint ]]; then
 elif [[ $method == "auto" && -e $targetFile ]]; then
     touch "$mountPoint"
     mount -o bind "$targetFile" "$mountPoint"
+elif [[ $method == "bindfs" && -e $targetFile ]]; then
+    touch "$mountPoint"
+    bindfs -n "$targetFile" "$mountPoint"
 elif [[ $method == "auto" && $mountPoint == "/etc/machine-id" ]]; then
     # Work around an issue with persisting /etc/machine-id. For more
     # details, see https://github.com/nix-community/impermanence/pull/242

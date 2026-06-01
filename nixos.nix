@@ -51,6 +51,7 @@ let
     concatPaths
     parentsOf
     duplicates
+    getPersistentPath
     ;
 
   inherit (config.users) users;
@@ -85,15 +86,15 @@ let
 
   inherit (allPersistentStoragePaths) files directories;
 
-  mountFile = pkgs.runCommand "persistence-mount-file" { buildInputs = [ pkgs.bash ]; } ''
+  mountFile = pkgs.runCommand "persistence-mount-file" { buildInputs = [ pkgs.bash pkgs.bindfs pkgs.util-linux ]; } ''
     cp ${./mount-file.bash} $out
     patchShebangs $out
   '';
 
-  mkPersistFile = { filePath, persistentStoragePath, method, enableDebugging, ... }:
+  mkPersistFile = { filePath, persistentStoragePath, method, enableDebugging, ... }@args:
     let
       mountPoint = filePath;
-      targetFile = concatPaths [ persistentStoragePath filePath ];
+      targetFile = getPersistentPath args;
       args = escapeShellArgs [
         mountPoint
         targetFile
@@ -222,14 +223,6 @@ in
 
   config =
     mkMerge [
-      (lib.optionalAttrs (options ? home-manager.sharedModules) {
-        home-manager.sharedModules = [
-          ./home-manager.nix
-          {
-            home._nixosModuleImported = true;
-          }
-        ];
-      })
       (mkIf (allPersistentStoragePaths != { })
         (mkMerge [
           {
@@ -237,7 +230,7 @@ in
               let
                 mkPersistFileService = { filePath, persistentStoragePath, ... }@args:
                   let
-                    targetFile = concatPaths [ persistentStoragePath filePath ];
+                    targetFile = getPersistentPath args;
                     mountPoint = escapeShellArg filePath;
                   in
                   {
@@ -266,13 +259,39 @@ in
               in
               foldl' recursiveUpdate { } (map mkPersistFileService files);
 
+            systemd.services =
+              let
+                mkBindfsService = { dirPath, persistentStoragePath, allowOther ? false, ... }@args:
+                  let
+                    targetDir = getPersistentPath args;
+                    mountPoint = concatPaths [ "/" dirPath ];
+                  in
+                  {
+                    "bindfs-${escapeSystemdPath mountPoint}" = {
+                      description = "Bindfs mount ${targetDir} to ${mountPoint}";
+                      wantedBy = [ "local-fs.target" ];
+                      before = [ "local-fs.target" ];
+                      path = [ pkgs.bindfs pkgs.util-linux ];
+                      unitConfig.DefaultDependencies = false;
+                      serviceConfig = {
+                        Type = "forking";
+                        ExecStart = "bindfs -n ${optionalString allowOther "--allow-other"} ${targetDir} ${mountPoint}";
+                        ExecStop = "umount ${mountPoint}";
+                        RemainAfterExit = true;
+                      };
+                    };
+                  };
+                bindfsDirs = filter (d: d.method == "bindfs") directories;
+              in
+              foldl' recursiveUpdate { } (map mkBindfsService bindfsDirs);
+
             boot.initrd.systemd.mounts =
               let
-                mkBindMount = { dirPath, persistentStoragePath, hideMount, allowTrash, ... }: {
+                mkBindMount = { dirPath, persistentStoragePath, hideMount, allowTrash, ... }@args: {
                   wantedBy = [ "initrd.target" ];
                   before = [ "initrd-nixos-activation.service" ];
                   where = concatPaths [ "/sysroot" dirPath ];
-                  what = concatPaths [ "/sysroot" persistentStoragePath dirPath ];
+                  what = concatPaths [ "/sysroot" (getPersistentPath args) ];
                   unitConfig.DefaultDependencies = false;
                   type = "none";
                   options = concatStringsSep "," ([
@@ -283,17 +302,18 @@ in
                     "x-gvfs-trash"
                   ]);
                 };
-                dirs = filter (d: elem d.dirPath pathsNeededForBoot) directories;
+                # Only bind mount if method is "bind" (default)
+                dirs = filter (d: d.method == "bind" && elem d.dirPath pathsNeededForBoot) directories;
               in
               map mkBindMount dirs;
 
             systemd.mounts =
               let
-                mkBindMount = { dirPath, persistentStoragePath, hideMount, allowTrash, ... }: {
+                mkBindMount = { dirPath, persistentStoragePath, hideMount, allowTrash, ... }@args: {
                   wantedBy = [ "local-fs.target" ];
                   before = [ "local-fs.target" ];
                   where = concatPaths [ "/" dirPath ];
-                  what = concatPaths [ persistentStoragePath dirPath ];
+                  what = getPersistentPath args;
                   unitConfig.DefaultDependencies = false;
                   type = "none";
                   options = concatStringsSep "," ([
@@ -304,8 +324,10 @@ in
                     "x-gvfs-trash"
                   ]);
                 };
+                # Only bind mount if method is "bind" (default)
+                bindDirs = filter (d: d.method == "bind") directories;
               in
-              map mkBindMount directories;
+              map mkBindMount bindDirs;
 
             system.activationScripts =
               let
@@ -324,21 +346,28 @@ in
                   , group
                   , mode
                   , enableDebugging
+                  , method ? "bind"
+                  , isLeaf ? false
                   , ...
-                  }:
+                  }@args:
                   let
-                    args = [
-                      persistentStoragePath
+                    skipEphemeral = if method == "symlink" && isLeaf then "1" else "0";
+                    procArgs = [
+                      (getPersistentPath {
+                        inherit persistentStoragePath dirPath;
+                        inherit (args) removePrefixDirectory home;
+                      })
                       dirPath
                       user
                       # Home Manager doesn't seem to know about the user's group
                       (if group == null then users.${user}.group else group)
                       mode
                       enableDebugging
+                      skipEphemeral
                     ];
                   in
                   ''
-                    ${createDirectories} ${escapeShellArgs args}
+                    ${createDirectories} ${escapeShellArgs procArgs}
                   '';
 
                 # Build an activation script which creates all persistent
@@ -350,7 +379,7 @@ in
 
                     # All the directories actually listed by the user and the
                     # parent directories of listed files.
-                    explicitDirs = directories ++ fileDirs;
+                    explicitDirs = map (d: d // d.defaultPerms // { isLeaf = true; }) directories ++ fileDirs;
 
                     # Home directories have to be handled specially, since
                     # they're at the permissions boundary where they
@@ -373,6 +402,7 @@ in
                               group = users.${dir.user}.group;
                               inherit defaultPerms;
                               inherit (dir) persistentStoragePath enableDebugging;
+                              isLeaf = true;
                             };
                           in
                           if dir.home != null then
@@ -427,6 +457,7 @@ in
                               path;
                           inherit (dir) persistentStoragePath home enableDebugging;
                           inherit (dir.defaultPerms) user group mode;
+                          isLeaf = false;
                         };
                         # Create new directory items for all parent
                         # directories of a directory.
@@ -468,6 +499,33 @@ in
                     ${concatMapStrings mkPersistFile files}
                     exit $_status
                   '';
+
+                symlinkDirScript =
+                  let
+                    mkSymlinkDir = { dirPath, ... }@args:
+                      let
+                        targetDir = getPersistentPath args;
+                        mountPoint = concatPaths [ "/" dirPath ];
+                      in
+                      ''
+                        if [[ -L ${mountPoint} && $(readlink ${mountPoint}) == ${targetDir} ]]; then
+                            :
+                        elif [[ -e ${mountPoint} ]]; then
+                            echo "Error: ${mountPoint} already exists and is not a symlink to ${targetDir}" >&2
+                            _status=1
+                        else
+                            mkdir -p "$(dirname "${mountPoint}")"
+                            ln -s "${targetDir}" "${mountPoint}"
+                        fi
+                      '';
+                    symlinkDirs = filter (d: d.method == "symlink") directories;
+                  in
+                  pkgs.writeShellScript "persistence-symlink-dirs" ''
+                    _status=0
+                    trap "_status=1" ERR
+                    ${concatMapStrings mkSymlinkDir symlinkDirs}
+                    exit $_status
+                  '';
               in
               {
                 "createPersistentStorageDirs" = {
@@ -477,6 +535,10 @@ in
                 "persist-files" = {
                   deps = [ "createPersistentStorageDirs" ];
                   text = "${persistFileScript}";
+                };
+                "symlink-dirs" = {
+                  deps = [ "createPersistentStorageDirs" ];
+                  text = "${symlinkDirScript}";
                 };
               };
 
