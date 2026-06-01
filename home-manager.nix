@@ -79,34 +79,38 @@ in
     # so that 'mkOutOfStoreSymlink' works correctly with Home Manager's tracking.
     home.file =
       let
-        mkLinkNameValuePair = persistentStorageName: fileOrDir: {
-          name = lib.removePrefix "/" (lib.removePrefix home.homeDirectory
-            (if cfg.${persistentStorageName}.removePrefixDirectory then
-              # Use the new shared logic for flattening if requested
-              getPersistentPath { 
-                persistentStoragePath = ""; 
-                dirPath = fileOrDir; 
-                removePrefixDirectory = true; 
-                home = home.homeDirectory; 
-              }
-            else
-              fileOrDir)
-          );
-          value = {
-            source = config.lib.file.mkOutOfStoreSymlink (getPersistentPath {
-              persistentStoragePath = cfg.${persistentStorageName}.persistentStoragePath;
-              dirPath = fileOrDir;
-              removePrefixDirectory = cfg.${persistentStorageName}.removePrefixDirectory;
-              home = home.homeDirectory;
-            });
+        mkLinkNameValuePair = persistentStorageName: isFile: fileOrDir:
+          let
+            path = if isFile then fileOrDir.file else fileOrDir.directory;
+          in
+          {
+            name = lib.removePrefix "/" (lib.removePrefix home.homeDirectory
+              (if cfg.${persistentStorageName}.removePrefixDirectory then
+                # Use the new shared logic for flattening if requested
+                getPersistentPath {
+                  persistentStoragePath = "";
+                  dirPath = path;
+                  removePrefixDirectory = true;
+                  home = home.homeDirectory;
+                }
+              else
+                path)
+            );
+            value = {
+              source = config.lib.file.mkOutOfStoreSymlink (getPersistentPath {
+                persistentStoragePath = cfg.${persistentStorageName}.persistentStoragePath;
+                dirPath = path;
+                removePrefixDirectory = cfg.${persistentStorageName}.removePrefixDirectory;
+                home = home.homeDirectory;
+              });
+            };
           };
-        };
 
         mkLinksToPersistentStorage = persistentStorageName:
-          builtins.listToAttrs (map
-            (mkLinkNameValuePair persistentStorageName)
-            (cfg.${persistentStorageName}.files ++ (map (v: v.directory)
-              (filter (v: v.method == "symlink") cfg.${persistentStorageName}.directories)))
+          builtins.listToAttrs (
+            (map (mkLinkNameValuePair persistentStorageName true) cfg.${persistentStorageName}.files)
+            ++ (map (mkLinkNameValuePair persistentStorageName false)
+              (filter (v: v.method == "symlink") cfg.${persistentStorageName}.directories))
           );
       in
       foldl' recursiveUpdate { } (map mkLinksToPersistentStorage persistentStorageNames);
@@ -202,7 +206,8 @@ in
                   home = home.homeDirectory;
                 })}
               '')
-              (cfg.${persistentStorageName}.files ++ (map (v: v.directory) (filter (v: v.method == "symlink") cfg.${persistentStorageName}.directories))))
+              ((map (f: f.file) cfg.${persistentStorageName}.files)
+                ++ (map (d: d.directory) (filter (v: v.method == "symlink") cfg.${persistentStorageName}.directories))))
           persistentStorageNames);
     };
   };
