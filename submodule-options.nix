@@ -278,6 +278,16 @@ in {
         internal = true;
         default = [];
       };
+      allowOther = mkOption {
+        type = bool;
+        default = false;
+        description = "Allow other users to access the persisted files.";
+      };
+      removePrefixDirectory = mkOption {
+        type = bool;
+        default = false;
+        description = "Whether to remove the home directory prefix from the on-disk path.";
+      };
     }
     // optionalAttrs (!usersOpts)
     {
