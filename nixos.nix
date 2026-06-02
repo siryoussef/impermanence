@@ -380,7 +380,8 @@ in
                     procArgs = [
                       (getPersistentPath {
                         inherit persistentStoragePath dirPath;
-                        inherit (args) removePrefixDirectory home;
+                        removePrefixDirectory = args.removePrefixDirectory or false;
+                        home = args.home or null;
                       })
                       dirPath
                       user
