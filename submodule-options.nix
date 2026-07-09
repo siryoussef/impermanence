@@ -1,8 +1,9 @@
+{
   pkgs,
   lib,
   name,
-  config,                                   # The current SUBMODULE config
-  systemConfig ? config,                    # The OUTER persistence block config
+  config, # The current SUBMODULE config
+  systemConfig ? config, # The OUTER persistence block config
   homeDir,
   usersOpts ? false, # Are the options used as users.<username> submodule options?
   user, # Default user name
