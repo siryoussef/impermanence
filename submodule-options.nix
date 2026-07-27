@@ -67,7 +67,8 @@
       };
       removePrefixDirectory = mkOption {
         type = bool;
-        default = false;
+        default = systemConfig.removePrefixDirectory or false;
+        defaultText = "environment.persistence.‹name›.removePrefixDirectory";
         description = ''
           Whether to remove the first component of the path when deciding where to put the links.
         '';
